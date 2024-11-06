@@ -1,0 +1,81 @@
+import tensorflow as tf
+import numpy as np
+import cv2
+import json
+import os
+import time
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
+from object_detection.utils import ops as utils_ops
+from object_detection.utils import label_map_util
+from object_detection.utils import visualization_utils as vis_util
+
+
+# Load the COCO label map
+LABEL_MAP_PATH = '/Users/sreevanthsv/Desktop/coco_labels.txt'  # Path to coco_labels.txt
+model_path = '/Users/sreevanthsv/Desktop/ssd-mobilenet-v2-tensorflow2-fpnlite-320x320-v1'
+model = tf.saved_model.load(model_path)
+
+# Load COCO label map
+def load_label_map():
+    label_map = {}
+    with open(LABEL_MAP_PATH, 'r') as file:
+        lines = file.readlines()
+        for i, line in enumerate(lines):
+            label_map[i+1] = line.strip()
+    return label_map
+
+labels = load_label_map()
+
+# Load the COCO annotations
+def load_coco_annotations(annotation_file):
+    with open(annotation_file) as f:
+        annotations = json.load(f)
+    return annotations
+
+annotations = load_coco_annotations('/Users/sreevanthsv/Desktop/coco/annotations/instances_val2017.json')  # COCO annotations path
+
+# Set up the video capture
+cap = cv2.VideoCapture(0)  # Use 0 for default webcam
+
+# Process each frame for object detection
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Resize the frame and convert to RGB
+    image_np = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    input_tensor = tf.convert_to_tensor(image_np)
+    input_tensor = input_tensor[tf.newaxis,...]
+
+    # Perform object detection
+    detections = model(input_tensor)
+    num_detections = int(detections['num_detections'][0])
+    detection_classes = detections['detection_classes'][0].numpy().astype(np.int32)
+    detection_boxes = detections['detection_boxes'][0].numpy()
+    detection_scores = detections['detection_scores'][0].numpy()
+
+    # Draw bounding boxes and labels on the frame
+    h, w, _ = frame.shape
+    for i in range(num_detections):
+        if detection_scores[i] > 0.5:  # Confidence threshold
+            class_id = detection_classes[i]
+            label = labels.get(class_id, 'Unknown')
+            ymin, xmin, ymax, xmax = detection_boxes[i]
+            left, right, top, bottom = int(xmin * w), int(xmax * w), int(ymin * h), int(ymax * h)
+
+            # Draw the bounding box
+            cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 0), 2)
+            cv2.putText(frame, f"{label}: {int(detection_scores[i] * 100)}%", (left, top - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+    # Show the image with detections
+    cv2.imshow('Object Detection', frame)
+
+    # Exit on pressing the 'q' key
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
